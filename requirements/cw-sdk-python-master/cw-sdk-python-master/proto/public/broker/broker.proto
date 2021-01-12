@@ -1,0 +1,228 @@
+syntax = "proto3";
+
+package ProtobufBroker;
+
+import "public/client/client.proto";
+import "public/broker/private.proto";
+import "public/stream/stream.proto";
+import "google/protobuf/any.proto";
+
+// DEPRECATION WARNING this isn't used anymore in favor of ProtobufClient.ClientSessionMessage
+message BrokerSessionMessage {
+  message Session {
+    string userId = 1;
+    int64 expires = 2;
+    string token = 3;
+    string mfaToken = 4;
+  }
+
+  message AnonymousTradingSession {
+    string exchange = 1;
+    string token = 2;
+    int64 expiration = 3;
+  }
+
+  oneof SessionConfig {
+    Session session = 1;
+    AnonymousTradingSession anonymousTradingSession = 2;
+  }
+
+  int64 marketId = 3;
+}
+
+message PlaceOrderRequest {
+  PrivateOrder order = 2;
+  PrivateOrder closingOrder = 3;
+}
+
+message PlaceOrderResult {
+  PrivateOrder order = 2;
+
+  // Deprecated
+  string orderId = 1;
+}
+
+message CancelOrderRequest {
+  string orderId = 2;
+}
+
+message CancelOrderResult {
+  string orderId = 1;
+}
+
+message ReplaceOrderRequest {
+  string orderId = 1;
+  PrivateOrder replacement = 2;
+  PrivateOrder replacementClosingOrder = 3;
+}
+
+message ClosePositionRequest {
+  string positionId = 2;
+}
+
+message SettlePositionRequest {
+  string positionId = 1;
+}
+
+message SyncRequest {}
+
+// AllBalances grep flag: Ai33fA
+// message AllBalancesRequest{}
+
+message BrokerRequest {
+  string id = 1;
+  // marketId can be 0 if there is just one session associated with the
+  // connection.
+  int64 marketId = 7;
+  oneof Request {
+    PlaceOrderRequest placeOrderRequest = 2;
+    CancelOrderRequest cancelOrderRequest = 3;
+    ReplaceOrderRequest replaceOrderRequest = 6;
+    SyncRequest syncRequest = 4;
+    ClosePositionRequest closePositionRequest = 5;
+    // AllBalancesRequest allBalancesRequest = 8; // AllBalances grep flag: Ai33fA
+    SettlePositionRequest settlePositionRequest = 9;
+  }
+}
+
+message OrdersUpdate {
+  repeated PrivateOrder orders = 1;
+}
+
+message TradesUpdate {
+  repeated PrivateTrade trades = 1;
+}
+
+message PositionsUpdate {
+  repeated PrivatePosition positions = 1;
+}
+
+message BalancesUpdate {
+  // This field represents available balances, this was the
+  // default until we introduced the ability to split between
+  // total and available balances.
+  repeated Balances balances = 1;
+
+  // This field contains total balances only.
+  repeated Balances total = 2;
+}
+
+message LedgersUpdate {
+  repeated PrivateLedger ledgers = 1;
+}
+
+// AllBalances grep flag: Ai33fA
+// message AllBalancesUpdate {
+//   string id = 1;
+//   repeated Balances balances = 2;
+// }
+
+message RequestResolutionUpdate {
+  string id = 1;
+  int32 error = 2;
+  string message = 3;
+  Error errorV2 = 6;
+
+  oneof Result {
+    PlaceOrderResult placeOrderResult = 4;
+    CancelOrderResult cancelOrderResult = 5;
+  }
+}
+
+message AnonymousSessionStatusUpdate {
+  int64 expiration = 1;
+  string token = 2;
+}
+
+message SessionStatusUpdate {
+  bool initialized = 1;
+
+  // Syncing means poller is running
+  bool syncing = 2;
+  // Last sync is last time poller finished running
+  int64 lastSyncTime = 3;
+  // Expose error from poller
+  int32 syncError = 4;
+}
+
+message PermissionsUpdate {
+  repeated PrivateOrder.Type orderTypes = 1 [packed = false];
+  repeated FundingType fundingTypes = 2 [packed = false];
+
+  message Agreement {
+    string key = 1;
+    string body = 2;
+  }
+  repeated Agreement agreements = 4;
+
+  message LeverageLevels {
+    repeated string buy = 1;
+    repeated string sell = 2;
+  }
+
+  LeverageLevels leverageLevels = 6;
+
+  bool supportsOrderExpiry = 7;
+
+  // Removed feature
+  reserved 5;
+  reserved "currencyPairAllowed";
+}
+
+message APIAccessorStatusUpdate {
+  bool hasAccess = 1;
+  int32 status = 2;
+  string statusString = 3;
+}
+
+message BrokerUpdateMessage {
+  int64 marketId = 11;
+  oneof Update {
+    OrdersUpdate ordersUpdate = 1;
+    TradesUpdate tradesUpdate = 2;
+    BalancesUpdate balancesUpdate = 3;
+    PositionsUpdate positionsUpdate = 8;
+    LedgersUpdate ledgersUpdate = 15;
+    RequestResolutionUpdate requestResolutionUpdate = 4;
+    AnonymousSessionStatusUpdate anonymousSessionStatusUpdate = 5;
+    PermissionsUpdate permissionsUpdate = 6;
+    SessionStatusUpdate sessionStatusUpdate = 7;
+    APIAccessorStatusUpdate apiAccessorStatusUpdate = 9;
+    // AllBalancesUpdate allBalancesUpdate = 13; // AllBalances grep flag: Ai33fA
+    ProtobufStream.AuthenticationResult authenticationResult = 10;
+    ProtobufStream.SubscriptionResult subscriptionResult = 12;
+    ProtobufClient.WebAuthenticationResult webAuthenticationResult = 14;
+  }
+}
+
+// Copied from cryptowatch/outer/resource/broker/v1
+message Error {
+  enum Kind {
+    KIND_UNKNOWN = 0;
+    KIND_INTERNAL = 1;
+    KIND_TRANSIENT = 2;
+    KIND_ABORTED = 3;
+    KIND_IO = 4;
+    KIND_PERMISSION_DENIED = 5;
+    KIND_INVALID_OPERATION = 6;
+    KIND_INVALID_ARGUMENT = 7;
+    KIND_INVALID_REQUEST = 8;
+  }
+
+  // Kind is generalized code.
+  Kind kind = 1 [json_name = "kind"];
+  // Code is an identifier that represents error produced by an external service for example by an exchange, unified into the common form.
+  // It has simple uint64 representation so that there is no need to rebuild frontend/update client library every time an exchange introduce a new error.
+  // The set of values is changing constantly and are out of control of Cryptowatch.
+  // For in-depth information about the original error that exchange sent, inspect details for OriginalErrorDetails.
+  uint64 code = 2 [json_name = "code"];
+  // Message is a developer-facing human-readable error message in English. It should
+  // both explain the error and offer an actionable resolution to it.
+  string message = 4 [json_name = "message"];
+  // Details are an additional error information that the client code can use to handle the error.
+  // It may contains information about particular fields that were filled in the wrong way,
+  // how much request quota is left or what was the exact response from the exchange.
+  //
+  // LINK: https://godoc.org/google.golang.org/genproto/googleapis/rpc/errdetails
+  repeated google.protobuf.Any details = 5 [json_name = "details"];
+}
